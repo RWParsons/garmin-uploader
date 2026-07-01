@@ -1,0 +1,23 @@
+# Secrets - never commit real credentials
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Garmin auth token cache (only relevant if you point token_store at a
+# persistent local path instead of the per-session temp dir app.py uses)
+.garminconnect/
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code local project state
+.claude/

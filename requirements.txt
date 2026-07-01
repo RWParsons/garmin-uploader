@@ -1,0 +1,6 @@
+streamlit>=1.38
+garminconnect==0.3.2
+curl_cffi
+pandas
+python-dotenv
+pydantic>=2
