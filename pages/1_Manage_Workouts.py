@@ -43,6 +43,8 @@ if "garmin_cal_cache" not in st.session_state:
     st.session_state.garmin_cal_cache = {}  # (year, month) -> parsed calendar workout list
 if "garmin_cal_detail_cache" not in st.session_state:
     st.session_state.garmin_cal_detail_cache = {}  # workout_id -> Workout, once fetched via a popover
+if "garmin_cal_selected" not in st.session_state:
+    st.session_state.garmin_cal_selected = set()  # schedule_ids currently checked on the calendar
 
 
 def _select_key(workout_id) -> str:
@@ -243,18 +245,53 @@ with tab_calendar:
 
         return _detail
 
+    def make_on_select(schedule_id):
+        def _on_select(checked: bool) -> None:
+            if checked:
+                st.session_state.garmin_cal_selected.add(schedule_id)
+            else:
+                st.session_state.garmin_cal_selected.discard(schedule_id)
+
+        return _on_select
+
     events: dict[str, list[dict]] = {}
     for item in scheduled:
-        if not item.get("date"):
+        if not item.get("date") or item.get("schedule_id") is None:
             continue
         events.setdefault(item["date"], []).append(
-            {"label": f"{sport_icon(item.get('sport'))} {item['title']}", "render_detail": _make_detail(item)}
+            {
+                "label": f"{sport_icon(item.get('sport'))} {item['title']}",
+                "render_detail": _make_detail(item),
+                "selected": item["schedule_id"] in st.session_state.garmin_cal_selected,
+                "on_select": make_on_select(item["schedule_id"]),
+                "event_id": str(item["schedule_id"]),
+            }
         )
 
     render_month_grid(events, year, month, key_prefix="garmin_cal", lazy=True)
 
     if not scheduled:
         st.caption("No workouts scheduled on Garmin's calendar for this month.")
+    else:
+        selected = [item for item in scheduled if item["schedule_id"] in st.session_state.garmin_cal_selected]
+        st.caption(
+            "Deleting selected removes them from the calendar only (unschedules) - the "
+            "workout stays in your Garmin workout library and can be rescheduled later."
+        )
+        if st.button(
+            f"🗑️ Delete selected ({len(selected)})",
+            key="garmin_cal_delete_selected",
+            disabled=not selected,
+        ):
+            for item in selected:
+                try:
+                    gc.unschedule_workout(item["schedule_id"])
+                    st.session_state.garmin_log.append((item["title"], "unschedule", "ok"))
+                except Exception as e:
+                    st.session_state.garmin_log.append((item["title"], "unschedule", f"error: {e}"))
+                st.session_state.garmin_cal_selected.discard(item["schedule_id"])
+            st.session_state.garmin_cal_cache.pop(cache_key, None)
+            st.rerun()
 
     all_items = raw.get("calendarItems") or raw.get("items") or []
     item_types = sorted({str((it.get("itemType") or it.get("type") or "?")) for it in all_items})

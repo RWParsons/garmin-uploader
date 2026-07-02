@@ -87,9 +87,16 @@ def render_upload_workouts_page() -> None:
         st.code(CSV_TEMPLATE, language="text")
 
     uploaded_csv = st.file_uploader("Upload workout CSV", type="csv")
-    if uploaded_csv is not None:
+    # st.file_uploader keeps returning the same file on every rerun (not just
+    # the one right after upload), so without this check we'd re-parse it -
+    # and rebuild every Workout as a brand-new object - on every single
+    # interaction anywhere on the page, silently discarding in-progress edits
+    # and breaking anything keyed by object identity (e.g. the calendar
+    # checkboxes below, which would immediately appear to "uncheck themselves").
+    if uploaded_csv is not None and uploaded_csv.file_id != st.session_state.get("_uploaded_csv_file_id"):
         try:
             st.session_state.plan = parse_csv_to_plan(uploaded_csv)
+            st.session_state._uploaded_csv_file_id = uploaded_csv.file_id
             st.success(f"Loaded {len(st.session_state.plan.workouts)} workout(s) from CSV.")
         except Exception as e:
             st.error(f"Couldn't parse that CSV: {e}")
@@ -112,7 +119,10 @@ def render_upload_workouts_page() -> None:
         if not dated_workouts:
             st.info("No workouts in this draft have a date set yet - nothing to show on the calendar.")
         else:
-            st.caption("Click a workout below to view its steps and push it, or push everything on the calendar at once.")
+            st.caption(
+                "Click a workout to view its steps and push it, tick the checkbox to select it, "
+                "or push/delete everything on the calendar at once."
+            )
             if st.button("🚀 Push ALL workouts on the calendar", key="draft_cal_push_all"):
                 push_many(dated_workouts)
 
@@ -126,27 +136,61 @@ def render_upload_workouts_page() -> None:
             )
             st.session_state.draft_cal_year, st.session_state.draft_cal_month = year, month
 
+            if "draft_cal_selected" not in st.session_state:
+                st.session_state.draft_cal_selected: set[int] = set()
+
+            def make_on_select(wid: int):
+                def _on_select(checked: bool) -> None:
+                    if checked:
+                        st.session_state.draft_cal_selected.add(wid)
+                    else:
+                        st.session_state.draft_cal_selected.discard(wid)
+
+                return _on_select
+
             events: dict[str, list[dict]] = {}
-            for idx, w in enumerate(dated_workouts):
-                def make_detail(workout=w, idx=idx):
+            for w in dated_workouts:
+                # id() rather than a list index - indices shift after a
+                # delete, which would otherwise let a stale selection bleed
+                # onto whichever workout happens to land on that same index.
+                wid = id(w)
+
+                def make_detail(workout=w):
                     def _detail():
                         render_workout_summary(workout)
-                        if st.button("🚀 Push to Garmin", key=f"draft_cal_push_{idx}"):
+                        if st.button("🚀 Push to Garmin", key=f"draft_cal_push_{id(workout)}"):
                             push_one(workout)
 
                     return _detail
 
                 events.setdefault(w.date, []).append(
-                    {"label": f"{sport_icon(w.sport)} {w.name}", "render_detail": make_detail()}
+                    {
+                        "label": f"{sport_icon(w.sport)} {w.name}",
+                        "render_detail": make_detail(),
+                        "selected": wid in st.session_state.draft_cal_selected,
+                        "on_select": make_on_select(wid),
+                        "event_id": str(wid),
+                    }
                 )
             render_month_grid(events, year, month, key_prefix="draft_cal")
+
+            selected = [w for w in dated_workouts if id(w) in st.session_state.draft_cal_selected]
+            if st.button(
+                f"🗑️ Delete selected ({len(selected)})",
+                key="draft_cal_delete_selected",
+                disabled=not selected,
+            ):
+                selected_ids = {id(w) for w in selected}
+                plan.workouts = [w for w in plan.workouts if id(w) not in selected_ids]
+                st.session_state.draft_cal_selected -= selected_ids
+                st.rerun()
 
         # --------------------------------------------------------------------------
         # Step 3: review / edit individual workouts
         # --------------------------------------------------------------------------
         st.divider()
         with st.expander("3. Review / edit individual workouts", expanded=False):
-            for idx, workout in enumerate(plan.workouts):
+            for workout in plan.workouts:
                 icon = sport_icon(workout.sport)
                 header = f"{icon} {workout.name}  ·  {workout.sport}  ·  {workout.date or 'unscheduled'}"
                 # A plain bordered container, not a nested st.expander - Streamlit
@@ -154,9 +198,15 @@ def render_upload_workouts_page() -> None:
                 # provides the collapse/expand control for this whole section).
                 with st.container(border=True):
                     st.markdown(f"**{header}**")
-                    render_workout_editor(workout, key_prefix=f"draft_{idx}")
+                    # id(workout), not a list index - render_workout_editor's
+                    # text_input/date_input only honor value= the first time a
+                    # given key is seen, so a positional key here would let a
+                    # workout that shifts into a just-deleted one's old slot
+                    # silently inherit that deleted workout's stale name/date
+                    # (see the identical bug already fixed in render_month_grid).
+                    render_workout_editor(workout, key_prefix=f"draft_{id(workout)}")
 
-                    if st.button(f"🚀 Push '{workout.name}' to Garmin", key=f"push_{idx}"):
+                    if st.button(f"🚀 Push '{workout.name}' to Garmin", key=f"push_{id(workout)}"):
                         push_one(workout)
 
             st.divider()

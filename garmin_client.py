@@ -353,7 +353,7 @@ def parse_garmin_workout(raw: Dict[str, Any]) -> Workout:
 def parse_calendar_workouts(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Pull the scheduled-workout entries out of a calendar month payload
     (GarminClient.get_scheduled_workouts()), normalized to
-    {workout_id, title, date, sport, fetchable}.
+    {workout_id, schedule_id, title, date, sport, fetchable}.
 
     A calendar month carries several item types - confirmed against a real
     account: "workout" (scheduled from the workout library), "activity",
@@ -377,6 +377,14 @@ def parse_calendar_workouts(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     Coach/adaptive items (matched by the broader substring above) get
     False - their workout_id is calendar-display-only, since GET
     /workout-service/workout/<id> doesn't have anything at that id for them.
+
+    "schedule_id" is always the calendar item's own "id" field, which is a
+    *different* id from workout_id (a "workout" item carries both - "id" is
+    the scheduled-instance id, "workoutId" is the library workout the
+    instance points to). It's what GarminClient.unschedule_workout() needs
+    to remove one calendar occurrence without touching the library entry -
+    using workout_id there would be wrong, since the same library workout
+    can be scheduled on multiple dates under different schedule_ids.
     """
     items = raw.get("calendarItems") or raw.get("items") or []
     workouts = []
@@ -394,6 +402,7 @@ def parse_calendar_workouts(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
         workouts.append(
             {
                 "workout_id": workout_id,
+                "schedule_id": item.get("id"),
                 "title": item.get("title") or item.get("workoutName") or "Untitled workout",
                 "date": item.get("date"),
                 "sport": sport,
@@ -487,6 +496,17 @@ class GarminClient:
 
     def delete_workout(self, workout_id: Any) -> Any:
         return self.client.delete_workout(workout_id)
+
+    def unschedule_workout(self, schedule_id: Any) -> Any:
+        """Remove one calendar occurrence of a workout without deleting the
+        workout itself from the library. `schedule_id` is the calendar
+        item's own "id" (see parse_calendar_workouts()), not the workout's
+        library id - Garmin Coach/adaptive-training items may not support
+        this the same way manually-scheduled library workouts do, so
+        callers should expect this can fail for those and handle it
+        per-item rather than assuming success.
+        """
+        return self.client.unschedule_workout(schedule_id)
 
     def update_workout(self, old_workout_id: Any, workout: Workout) -> Dict[str, Any]:
         """Replace an existing workout: upload the edited version first, and

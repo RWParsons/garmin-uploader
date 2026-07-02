@@ -162,6 +162,10 @@ def render_month_nav(year: int, month: int, key_prefix: str) -> Tuple[int, int]:
     return year, month
 
 
+def _run_on_select(cb_key: str, on_select) -> None:
+    on_select(st.session_state[cb_key])
+
+
 def render_month_grid(
     events_by_date: Dict[str, List[Dict[str, Any]]],
     year: int,
@@ -171,9 +175,40 @@ def render_month_grid(
 ) -> None:
     """Render a month grid with events shown under their day cell.
 
-    Each event is a dict with a "label" (icon + name, always shown) and an
+    Each event is a dict with a "label" (icon + name, always shown), an
     optional "render_detail" - a zero-arg callable that renders the workout's
-    steps.
+    steps - and an optional "selected"/"on_select" pair for a checkbox
+    rendered beside the event, separate from the popover button (checking it
+    does not open the popover):
+
+    - "selected": bool, whether the checkbox should currently show checked.
+    - "on_select": Callable[[bool], None], called with the new checked state
+      when the user toggles it.
+
+    The caller owns the actual selected/not-selected truth (e.g. a set of
+    ids in session_state) and updates it inside on_select - deliberately
+    NOT read back from the checkbox widget's own session_state after the
+    fact. A widget's own state only survives while it keeps getting
+    instantiated on every rerun; since a given day's events (and thus this
+    checkbox) only render while that month is the one currently displayed,
+    navigating to a different month and back would otherwise silently drop
+    the selection the next time Streamlit re-mounts the checkbox.
+
+    Each event should also carry a stable "event_id" (e.g. str(id(workout))
+    for in-memory objects, or a Garmin schedule_id) - it's used as part of
+    the checkbox/popover widget keys instead of that event's (date,
+    position-in-day) slot. Positional keys are unsafe here: once items can
+    be deleted, a later render's event at the same slot is a *different*
+    logical event, but Streamlit still treats it as the same widget (a
+    widget's `value=` is only honored the first time its key is ever seen -
+    every render after that, Streamlit ignores `value=` and keeps reusing
+    whatever's already in session_state for that key). Without a stable id,
+    that shows up as a checkbox silently inheriting a previous, unrelated
+    event's checked state right after a delete shifts positions - which
+    then makes the *next* delete act on whatever that stale checkbox
+    happens to say, not what the user actually selected. Falls back to
+    (date, position) if "event_id" is omitted, for callers with no
+    select/delete UI where this doesn't matter.
 
     lazy=True makes the popover stateful (on_change="rerun") and gates
     render_detail behind the .open check, so it only runs once the user has
@@ -205,22 +240,47 @@ def render_month_grid(
                 for i, event in enumerate(events_by_date.get(d.isoformat(), [])):
                     label = event.get("label", "Workout")
                     render_detail = event.get("render_detail")
-                    if render_detail is None:
-                        st.caption(label)
-                        continue
-                    if not lazy:
-                        with st.popover(label, use_container_width=True):
-                            render_detail()
-                        continue
-                    popover = st.popover(
-                        label,
-                        use_container_width=True,
-                        key=f"{key_prefix}_pop_{d.isoformat()}_{i}",
-                        on_change="rerun",
-                    )
-                    with popover:
-                        if popover.open:
-                            render_detail()
+                    on_select = event.get("on_select")
+                    event_id = event.get("event_id", f"{d.isoformat()}_{i}")
+
+                    if on_select is not None:
+                        cb_col, content_col = st.columns([0.2, 0.8])
+                        cb_key = f"{key_prefix}_cb_{event_id}"
+                        with cb_col:
+                            st.checkbox(
+                                "select",
+                                value=bool(event.get("selected")),
+                                key=cb_key,
+                                on_change=_run_on_select,
+                                args=(cb_key, on_select),
+                                label_visibility="collapsed",
+                            )
+                    else:
+                        content_col = st.container()
+
+                    with content_col:
+                        _render_calendar_event(label, render_detail, lazy, key_prefix, event_id)
+
+
+def _render_calendar_event(
+    label: str, render_detail, lazy: bool, key_prefix: str, event_id: str
+) -> None:
+    if render_detail is None:
+        st.caption(label)
+        return
+    if not lazy:
+        with st.popover(label, use_container_width=True):
+            render_detail()
+        return
+    popover = st.popover(
+        label,
+        use_container_width=True,
+        key=f"{key_prefix}_pop_{event_id}",
+        on_change="rerun",
+    )
+    with popover:
+        if popover.open:
+            render_detail()
 
 
 def _flatten_steps(steps: list[CardioStep]) -> list[dict]:
