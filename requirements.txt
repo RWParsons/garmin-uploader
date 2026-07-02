@@ -1,4 +1,5 @@
-streamlit>=1.38
+# 1.55+ for st.popover's on_change/.open (lazy-loading calendar step detail)
+streamlit>=1.55
 garminconnect==0.3.2
 curl_cffi
 pandas

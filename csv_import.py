@@ -15,7 +15,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
-from models import CardioStep, Exercise, Workout, WorkoutPlan
+from models import EXERCISE_SPORTS, CardioStep, Exercise, Workout, WorkoutPlan
 
 REQUIRED_COLUMNS = [
     "workout_name",
@@ -82,7 +82,7 @@ def parse_csv_to_plan(file) -> WorkoutPlan:
             notes=notes,
         )
 
-        if workout.sport == "strength":
+        if workout.sport in EXERCISE_SPORTS:
             workout.exercises = _build_exercises(group)
         else:
             workout.steps = _build_steps(group)

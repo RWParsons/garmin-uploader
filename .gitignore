@@ -10,7 +10,7 @@ __pycache__/
 venv/
 
 # Garmin auth token cache (only relevant if you point token_store at a
-# persistent local path instead of the per-session temp dir app.py uses)
+# persistent local path instead of the per-session temp dir garmin_session.py uses)
 .garminconnect/
 
 # Editor / OS cruft

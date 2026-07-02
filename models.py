@@ -10,10 +10,17 @@ from typing import List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
-Sport = Literal["running", "cycling", "stairs", "strength"]
+Sport = Literal[
+    "running", "cycling", "swimming", "cardio", "stairs", "hiit",
+    "strength", "yoga", "pilates",
+]
+# Sports that describe themselves with named exercises (sets/reps/weight) via
+# Workout.exercises rather than duration+target steps via Workout.steps.
+EXERCISE_SPORTS = {"strength", "yoga", "pilates"}
+
 StepType = Literal["warmup", "interval", "recovery", "cooldown", "repeat", "rest"]
-DurationType = Literal["time", "distance", "lap_button"]
-TargetType = Literal["none", "pace", "power", "heart_rate", "cadence"]
+DurationType = Literal["time", "distance", "lap_button", "calories"]
+TargetType = Literal["none", "pace", "speed", "power", "heart_rate", "cadence"]
 
 
 class CardioStep(BaseModel):
