@@ -16,6 +16,7 @@ from garmin_client import SPORT_ID_TO_KEY, parse_calendar_workouts, parse_garmin
 from garmin_session import render_garmin_login_sidebar
 from workout_ui import (
     SPORT_ICON,
+    calendar_checkbox_key,
     render_month_grid,
     render_month_nav,
     render_workout_editor,
@@ -45,6 +46,10 @@ if "garmin_cal_detail_cache" not in st.session_state:
     st.session_state.garmin_cal_detail_cache = {}  # workout_id -> Workout, once fetched via a popover
 if "garmin_cal_selected" not in st.session_state:
     st.session_state.garmin_cal_selected = set()  # schedule_ids currently checked on the calendar
+if "garmin_delete_all_future_open" not in st.session_state:
+    st.session_state.garmin_delete_all_future_open = False
+if "garmin_delete_all_future_preview" not in st.session_state:
+    st.session_state.garmin_delete_all_future_preview = None  # list of items, fetched once per dialog open
 
 
 def _select_key(workout_id) -> str:
@@ -65,6 +70,105 @@ def _refresh():
         st.session_state.garmin_editing = {}
     except Exception as e:
         st.error(f"Couldn't fetch workouts: {e}")
+
+
+def _find_all_future_scheduled(max_months: int = 12, stop_after_empty: int = 6) -> list[dict]:
+    """Scan forward month by month from today collecting every scheduled
+    workout dated today or later. Garmin Coach plans can generate workouts
+    indefinitely, so this is bounded rather than scanning forever: it stops
+    after `max_months`, or after `stop_after_empty` consecutive months with
+    no qualifying items. stop_after_empty deliberately isn't small - e.g. a
+    manually-scheduled item a few months out with nothing in between is a
+    perfectly normal gap, and stopping too eagerly would silently leave
+    real future workouts behind despite the button claiming "ALL". Reuses
+    garmin_cal_cache for months already fetched (e.g. the one currently on
+    screen) instead of re-hitting the API for them.
+    """
+    today = date.today()
+    found: list[dict] = []
+    empty_streak = 0
+    year, month = today.year, today.month
+    for _ in range(max_months):
+        cache_key = (year, month)
+        if cache_key in st.session_state.garmin_cal_cache:
+            _, items = st.session_state.garmin_cal_cache[cache_key]
+        else:
+            try:
+                raw = gc.get_scheduled_workouts(year, month)
+                items = parse_calendar_workouts(raw)
+                st.session_state.garmin_cal_cache[cache_key] = (raw, items)
+            except Exception as e:
+                st.error(f"Couldn't fetch {year}-{month:02d} while scanning ahead: {e}")
+                break
+
+        future_items = [
+            item
+            for item in items
+            if item.get("date") and item.get("schedule_id") is not None and item["date"] >= today.isoformat()
+        ]
+        found.extend(future_items)
+        empty_streak = empty_streak + 1 if not future_items else 0
+        if empty_streak >= stop_after_empty:
+            break
+
+        month += 1
+        if month > 12:
+            month, year = 1, year + 1
+
+    return found
+
+
+@st.dialog("Delete ALL future workouts?")
+def _confirm_delete_all_future_dialog():
+    if st.session_state.garmin_delete_all_future_preview is None:
+        with st.spinner("Scanning your calendar for future workouts..."):
+            st.session_state.garmin_delete_all_future_preview = _find_all_future_scheduled()
+
+    items = st.session_state.garmin_delete_all_future_preview
+    if not items:
+        st.info("No future workouts found on your calendar.")
+    else:
+        st.warning(
+            f"This will remove **{len(items)}** workout(s) from your Garmin calendar, from "
+            "today onward. This only unschedules them - each workout stays in your Garmin "
+            "workout library and can be rescheduled later - but this can't be undone in bulk "
+            "from here."
+        )
+        preview_lines = [f"- {item['date']}: {item['title']}" for item in items[:15]]
+        if len(items) > 15:
+            preview_lines.append(f"- ...and {len(items) - 15} more")
+        st.markdown("\n".join(preview_lines))
+
+    st.caption("Scans up to 12 months ahead - anything scheduled further out than that won't be found.")
+
+    cancel_col, confirm_col = st.columns(2)
+    with cancel_col:
+        if st.button("Cancel", key="garmin_delete_all_future_cancel"):
+            st.session_state.garmin_delete_all_future_open = False
+            st.session_state.garmin_delete_all_future_preview = None
+            st.rerun()
+    with confirm_col:
+        if st.button(
+            f"🗑️ Yes, delete {len(items)}",
+            key="garmin_delete_all_future_confirm",
+            type="primary",
+            disabled=not items,
+        ):
+            affected_months = set()
+            for item in items:
+                try:
+                    gc.unschedule_workout(item["schedule_id"])
+                    st.session_state.garmin_log.append((item["title"], "unschedule", "ok"))
+                except Exception as e:
+                    st.session_state.garmin_log.append((item["title"], "unschedule", f"error: {e}"))
+                item_date = date.fromisoformat(item["date"])
+                affected_months.add((item_date.year, item_date.month))
+                st.session_state.garmin_cal_selected.discard(item["schedule_id"])
+            for cache_key in affected_months:
+                st.session_state.garmin_cal_cache.pop(cache_key, None)
+            st.session_state.garmin_delete_all_future_open = False
+            st.session_state.garmin_delete_all_future_preview = None
+            st.rerun()
 
 
 tab_calendar, tab_library = st.tabs(["📅 Calendar", "📋 Library"])
@@ -210,6 +314,19 @@ with tab_calendar:
     st.session_state.garmin_cal_year, st.session_state.garmin_cal_month = year, month
 
     cache_key = (year, month)
+    refresh_col, delete_all_col = st.columns([1, 1.6])
+    with refresh_col:
+        if st.button("🔄 Refresh from Garmin", key="garmin_cal_refresh"):
+            st.session_state.garmin_cal_cache.pop(cache_key, None)
+            st.rerun()
+    with delete_all_col:
+        if st.button("🗑️ Delete ALL future workouts", key="garmin_delete_all_future_btn"):
+            st.session_state.garmin_delete_all_future_open = True
+            st.session_state.garmin_delete_all_future_preview = None
+
+    if st.session_state.garmin_delete_all_future_open:
+        _confirm_delete_all_future_dialog()
+
     if cache_key not in st.session_state.garmin_cal_cache:
         try:
             raw = gc.get_scheduled_workouts(year, month)
@@ -254,10 +371,82 @@ with tab_calendar:
 
         return _on_select
 
+    # Garmin's calendar API for one month also includes a handful of items
+    # from the tail/head of the adjacent month (the padding days it uses to
+    # fill out a full calendar week) - the grid below already only ever
+    # renders days that belong to (year, month), so those spill-over items
+    # never get a visible checkbox, but without this date check they'd still
+    # silently count towards "select all" / "Delete selected", letting a
+    # workout the user never even saw get selected and unscheduled.
+    selectable = [
+        item
+        for item in scheduled
+        if item.get("date")
+        and item.get("schedule_id") is not None
+        and date.fromisoformat(item["date"]).year == year
+        and date.fromisoformat(item["date"]).month == month
+    ]
+
+    # Selection is scoped to whichever month is currently displayed - drop
+    # anything left over from a different month (or a month whose fetch
+    # failed) every render, so "Delete selected"/"Select all"/the checkboxes
+    # can never drift out of sync with what's actually on screen after
+    # navigating between months.
+    st.session_state.garmin_cal_selected &= {item["schedule_id"] for item in selectable}
+
+    if scheduled:
+        selected = [item for item in selectable if item["schedule_id"] in st.session_state.garmin_cal_selected]
+
+        # Select all / Clear selection must run - and write any
+        # st.session_state[key] changes - before render_month_grid below
+        # instantiates the checkboxes that own those same keys (see the
+        # identical ordering constraint on the Library tab above). Updating
+        # garmin_cal_selected alone isn't enough to make the boxes
+        # *visually* update: a checkbox only re-reads value= the first time
+        # its key is ever seen, so it needs its own widget key written too.
+        select_all_col, clear_col, delete_col, count_col = st.columns([1, 1, 1, 2])
+        with select_all_col:
+            if st.button(f"☑️ Select all ({len(selectable)})", key="garmin_cal_select_all"):
+                for item in selectable:
+                    st.session_state.garmin_cal_selected.add(item["schedule_id"])
+                    st.session_state[calendar_checkbox_key("garmin_cal", str(item["schedule_id"]))] = True
+                st.rerun()
+        with clear_col:
+            if st.button("Clear selection", key="garmin_cal_clear_selection"):
+                for item in selectable:
+                    st.session_state.garmin_cal_selected.discard(item["schedule_id"])
+                    st.session_state[calendar_checkbox_key("garmin_cal", str(item["schedule_id"]))] = False
+                st.rerun()
+        with delete_col:
+            delete_clicked = st.button(
+                f"🗑️ Delete selected ({len(selected)})",
+                key="garmin_cal_delete_selected",
+                disabled=not selected,
+            )
+        with count_col:
+            if selected:
+                st.caption(f"{len(selected)} selected")
+
+        st.caption(
+            "Selection only ever applies to the month you're currently viewing - it's cleared "
+            "automatically when you navigate to a different month. Deleting removes selected "
+            "workouts from the calendar only (unschedules) - the workout stays in your Garmin "
+            "workout library and can be rescheduled later."
+        )
+
+        if delete_clicked:
+            for item in selected:
+                try:
+                    gc.unschedule_workout(item["schedule_id"])
+                    st.session_state.garmin_log.append((item["title"], "unschedule", "ok"))
+                except Exception as e:
+                    st.session_state.garmin_log.append((item["title"], "unschedule", f"error: {e}"))
+                st.session_state.garmin_cal_selected.discard(item["schedule_id"])
+            st.session_state.garmin_cal_cache.pop(cache_key, None)
+            st.rerun()
+
     events: dict[str, list[dict]] = {}
-    for item in scheduled:
-        if not item.get("date") or item.get("schedule_id") is None:
-            continue
+    for item in selectable:
         events.setdefault(item["date"], []).append(
             {
                 "label": f"{sport_icon(item.get('sport'))} {item['title']}",
@@ -272,26 +461,6 @@ with tab_calendar:
 
     if not scheduled:
         st.caption("No workouts scheduled on Garmin's calendar for this month.")
-    else:
-        selected = [item for item in scheduled if item["schedule_id"] in st.session_state.garmin_cal_selected]
-        st.caption(
-            "Deleting selected removes them from the calendar only (unschedules) - the "
-            "workout stays in your Garmin workout library and can be rescheduled later."
-        )
-        if st.button(
-            f"🗑️ Delete selected ({len(selected)})",
-            key="garmin_cal_delete_selected",
-            disabled=not selected,
-        ):
-            for item in selected:
-                try:
-                    gc.unschedule_workout(item["schedule_id"])
-                    st.session_state.garmin_log.append((item["title"], "unschedule", "ok"))
-                except Exception as e:
-                    st.session_state.garmin_log.append((item["title"], "unschedule", f"error: {e}"))
-                st.session_state.garmin_cal_selected.discard(item["schedule_id"])
-            st.session_state.garmin_cal_cache.pop(cache_key, None)
-            st.rerun()
 
     all_items = raw.get("calendarItems") or raw.get("items") or []
     item_types = sorted({str((it.get("itemType") or it.get("type") or "?")) for it in all_items})

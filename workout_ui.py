@@ -166,6 +166,23 @@ def _run_on_select(cb_key: str, on_select) -> None:
     on_select(st.session_state[cb_key])
 
 
+def calendar_checkbox_key(key_prefix: str, event_id: str) -> str:
+    """The exact widget key render_month_grid uses for an event's checkbox.
+
+    Exposed so callers can implement "select all" / "clear selection": they
+    must write directly to this same key (in addition to their own durable
+    selected-ids tracking) for the checkbox to visibly update, and that
+    write has to happen *before* render_month_grid instantiates the
+    checkboxes - same ordering rule as any other Streamlit widget key
+    (write it after the widget has already rendered this run and Streamlit
+    raises). Just updating the durable set on_select() reads from isn't
+    enough on its own: a checkbox only re-reads value= the first time its
+    key is ever seen, so a purely-programmatic change (nothing clicked)
+    otherwise leaves the widget showing stale state.
+    """
+    return f"{key_prefix}_cb_{event_id}"
+
+
 def render_month_grid(
     events_by_date: Dict[str, List[Dict[str, Any]]],
     year: int,
@@ -245,7 +262,7 @@ def render_month_grid(
 
                     if on_select is not None:
                         cb_col, content_col = st.columns([0.2, 0.8])
-                        cb_key = f"{key_prefix}_cb_{event_id}"
+                        cb_key = calendar_checkbox_key(key_prefix, event_id)
                         with cb_col:
                             st.checkbox(
                                 "select",
