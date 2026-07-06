@@ -174,14 +174,19 @@ deployed anywhere - it's just your machine talking to Garmin Connect.
 - **`garmin_session.py`** - the Garmin Connect login sidebar, shared by both
   pages (Streamlit re-runs only the active page's script on navigation, so
   this can't just live inline in one of them).
-- **`app.py`** - entry point. Declares the two pages via `st.navigation()`
-  with explicit titles ("Upload workouts" / "Manage workouts") and runs
-  whichever one is selected - run this with `streamlit run app.py`.
+- **`app.py`** - entry point. Declares the pages via `st.navigation()` with
+  explicit titles ("Upload workouts" / "Manage workouts" / "How to") and
+  runs whichever one is selected - run this with `streamlit run app.py`.
 - **`upload_workouts_page.py`** - page 1 ("Upload workouts"): import a CSV,
   review/edit, push to Garmin.
 - **`pages/1_Manage_Workouts.py`** - page 2 ("Manage workouts"): view/edit/
   delete workouts already in your Garmin workout library. See **Managing
   workouts already on Garmin** above.
+- **`pages/2_How_To.py`** - page 3 ("How to"): an in-app, user-facing
+  walkthrough of the same drafting/uploading/managing flow documented here,
+  plus the ready-made LLM prompt (`LLM_PROMPT_TEMPLATE` in
+  `prompt_templates.py`) so users don't need to come back to this README
+  just to draft a plan.
 
 ## Important caveats (read before relying on this)
 

@@ -1,9 +1,9 @@
 """Streamlit entry point.
 
-Declares the two pages explicitly (rather than relying on Streamlit's
+Declares the pages explicitly (rather than relying on Streamlit's
 filename-based auto-discovery) so the sidebar shows friendly titles -
-"Upload workouts" / "Manage workouts" - independent of the underlying
-file/function names.
+"Upload workouts" / "Manage workouts" / "How to" - independent of the
+underlying file/function names.
 
 Run with:
     streamlit run app.py
@@ -20,6 +20,7 @@ pg = st.navigation(
     [
         st.Page(render_upload_workouts_page, title="Upload workouts", default=True),
         st.Page("pages/1_Manage_Workouts.py", title="Manage workouts"),
+        st.Page("pages/2_How_To.py", title="How to"),
     ]
 )
 pg.run()

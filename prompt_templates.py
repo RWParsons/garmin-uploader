@@ -1,6 +1,32 @@
-"""A starter CSV template matching csv_import.py's expected column format.
+"""A starter CSV template matching csv_import.py's expected column format,
+plus the ready-made prompt for getting an LLM to draft one.
 
-See README.md for the full CSV column spec.
+See README.md for the full CSV column spec. Keep LLM_PROMPT_TEMPLATE in sync
+with the "Prompt template" section there - it's the same text, just also
+served from the app's own "How to" page so users don't need to go find the
+README to draft a plan.
+"""
+
+LLM_PROMPT_TEMPLATE = """You are drafting a training plan as a CSV file for me to upload to a workout-planning app. Create the file (don't just print it in chat) with EXACTLY these column headers, in this order:
+
+workout_name,sport,date,workout_notes,item_order,repeat_group,repeat_count,step_type,duration_type,duration_value,target_type,target_low,target_high,item_note,exercise_name,sets,reps,weight_kg,rest_seconds
+
+Rules:
+- One row = one cardio step OR one named exercise.
+- sport is one of: running, cycling, swimming, cardio (general cardio equipment - stair-stepper, elliptical, rower, etc.), hiit, strength, yoga, pilates
+- strength/yoga/pilates are exercise-based sports; every other sport is step-based
+- date is YYYY-MM-DD or blank (blank = I'll schedule it myself later)
+- item_order is an integer giving the order of items within a workout (1, 2, 3, ...)
+- For step-based sports, fill: step_type (warmup/interval/recovery/cooldown/rest), duration_type (time/distance/calories), duration_value (seconds if time, meters if distance, kcal if calories), target_type (none/pace/speed/power/heart_rate/cadence), target_low, target_high. Leave exercise_name/sets/reps/weight_kg/rest_seconds blank on these rows.
+- For exercise-based sports, fill: exercise_name, sets, reps, weight_kg (blank if bodyweight), rest_seconds. Leave step_type/duration_type/duration_value/target_type/target_low/target_high blank on these rows. For yoga/pilates, reps is usually 1 per pose/hold and the hold duration goes in item_note (e.g. "Hold 45s").
+- To make a set of steps repeat (e.g. 6x400m intervals), give those rows the same repeat_group value (any short label, unique per repeated block) and put the number of repeats in repeat_count on each of those rows. Leave repeat_group blank for steps that don't repeat.
+- Target units: pace in seconds-per-km, speed in km/h, power in watts, heart rate in bpm, cadence in rpm (bike) or steps/min (cardio equipment).
+- Put a short description of the whole workout in workout_notes (repeat it on every row for that workout, or just the first row).
+
+My athlete profile:
+[e.g. running threshold pace, cycling FTP, swim pace per 100m, comfortable cardio-equipment cadence, strength/yoga/pilates experience and injuries]
+
+Now draft: [describe the workout(s) you want]
 """
 
 CSV_TEMPLATE = """workout_name,sport,date,workout_notes,item_order,repeat_group,repeat_count,step_type,duration_type,duration_value,target_type,target_low,target_high,item_note,exercise_name,sets,reps,weight_kg,rest_seconds
