@@ -465,8 +465,35 @@ class GarminClient:
             connectapi = self._connectapi()
             result = connectapi("/workout-service/workout", method="POST", json=payload)
 
-        if workout.date and result and isinstance(result, dict) and "workoutId" in result:
-            self.client.schedule_workout(result["workoutId"], workout.date)
+        if workout.date:
+            # A dated workout that fails to schedule still ends up uploaded -
+            # left as an unscheduled "My Workouts" library entry. Unlike
+            # scheduled workouts (which Garmin auto-clears from the device
+            # once completed), those sit permanently until manually deleted
+            # and count against the device's stored-workout limit - so this
+            # must raise rather than silently skip scheduling, or a failure
+            # here looks identical to success while quietly leaking orphaned
+            # entries that eventually exceed the device's workout cap.
+            workout_id = (result or {}).get("workoutId") if isinstance(result, dict) else None
+            if workout_id is None:
+                raise RuntimeError(
+                    f"Uploaded '{workout.name}' but Garmin's response didn't include a "
+                    f"workoutId to schedule it with, so it was NOT scheduled for "
+                    f"{workout.date}. It now sits as an unscheduled entry in your Garmin "
+                    f"workout library, which (unlike scheduled workouts) isn't auto-cleared "
+                    f"from your device and will count against its stored-workout limit "
+                    f"until you delete or schedule it manually. Raw response: {result!r}"
+                )
+            try:
+                self.client.schedule_workout(workout_id, workout.date)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Uploaded '{workout.name}' (Garmin workout ID {workout_id}) but failed "
+                    f"to schedule it for {workout.date}: {e}. It now sits as an unscheduled "
+                    f"entry in your Garmin workout library, which (unlike scheduled workouts) "
+                    f"isn't auto-cleared from your device and will count against its "
+                    f"stored-workout limit until you delete or schedule it manually."
+                ) from e
         return result
 
     def list_workouts(self, start: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
