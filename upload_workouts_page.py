@@ -13,7 +13,6 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from csv_import import parse_csv_to_plan
-from garmin_session import render_garmin_login_sidebar
 from models import WorkoutPlan
 from prompt_templates import CSV_TEMPLATE
 from workout_ui import (
@@ -65,8 +64,6 @@ def render_upload_workouts_page() -> None:
             except Exception as e:
                 st.session_state.push_log.append((workout.name, workout.sport, f"error: {e}"))
         st.rerun()
-
-    render_garmin_login_sidebar()
 
     # --------------------------------------------------------------------------
     # Step 1: import the workout CSV

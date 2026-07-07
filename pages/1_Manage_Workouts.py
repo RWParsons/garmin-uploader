@@ -13,7 +13,6 @@ import pandas as pd
 import streamlit as st
 
 from garmin_client import SPORT_ID_TO_KEY, parse_calendar_workouts, parse_garmin_workout
-from garmin_session import render_garmin_login_sidebar
 from workout_ui import (
     SPORT_ICON,
     calendar_checkbox_key,
@@ -55,8 +54,6 @@ if "garmin_delete_all_future_preview" not in st.session_state:
 def _select_key(workout_id) -> str:
     return f"sel_{workout_id}"
 
-
-render_garmin_login_sidebar()
 
 gc = st.session_state.get("garmin")
 if gc is None:

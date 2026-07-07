@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from garmin_session import render_garmin_login_sidebar
 from prompt_templates import CSV_TEMPLATE, LLM_PROMPT_TEMPLATE
-
-render_garmin_login_sidebar()
 
 st.title("❓ How to use this app")
 st.caption(
