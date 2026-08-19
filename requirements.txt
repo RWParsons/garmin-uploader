@@ -5,3 +5,7 @@ curl_cffi
 pandas
 python-dotenv
 pydantic>=2
+# for garmin_mcp_server.py - the optional Claude Desktop training-history connector.
+# Pinned below 2.0: that release restructured the SDK (FastMCP moved/renamed
+# out of mcp.server.fastmcp), which garmin_mcp_server.py doesn't follow yet.
+mcp>=1.0,<2.0
