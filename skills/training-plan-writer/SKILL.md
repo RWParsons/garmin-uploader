@@ -156,7 +156,20 @@ questions from step 1, plus running threshold pace, cycling FTP, swim pace
 per 100m, comfortable cardio-equipment cadence, and strength/yoga/pilates
 experience level.
 
-### 3. What they want this time
+### 3. Strength workouts — generic only, for now
+
+**Current athlete preference (revisit if they say otherwise): don't program
+individual strength exercises/sets/reps.** When a plan calls for a strength
+session, write it as a single generic placeholder row — `exercise_name`
+`Strength Training`, `sets`/`reps`/`weight_kg` left blank — rather than
+picking specific exercises or prescribing sets/reps/weight. This is a
+"just show up and do the workout" entry, not a programmed one. Don't ask
+the athlete what exercises they want for a strength session; just add the
+generic row. This applies to `strength` specifically — yoga/pilates still
+get real named poses/exercises as before, since nothing said otherwise
+about those.
+
+### 4. What they want this time
 
 Ask (if not already obvious from the goals/history above): a single
 workout, a week, or a multi-week block; which sport(s) today's request is
@@ -206,6 +219,9 @@ Rules:
   `target_high` blank on these rows. For yoga/pilates, `reps` is usually `1`
   per pose/hold and the hold duration goes in `item_note` (e.g.
   `"Hold 45s"`) since there's no dedicated duration field on exercise rows.
+  **For `strength`**, see **Strength workouts — generic only, for now**
+  above: one row, `exercise_name` = `Strength Training`, `sets`/`reps`/
+  `weight_kg` blank — don't program individual exercises.
 - **Repeating blocks** (e.g. 6x400m intervals): give those rows the same
   `repeat_group` value (any short label, unique per repeated block within
   that workout) and put the repeat count in `repeat_count` on each of those
@@ -226,14 +242,17 @@ VO2 Intervals,running,,6x400m @ VO2max pace,1,,,warmup,time,600,heart_rate,120,1
 VO2 Intervals,running,,6x400m @ VO2max pace,2,intervals,6,interval,distance,400,pace,195,205,,,,,,
 VO2 Intervals,running,,6x400m @ VO2max pace,3,intervals,6,recovery,time,90,none,,,,,,,,
 VO2 Intervals,running,,6x400m @ VO2max pace,4,,,cooldown,time,600,heart_rate,110,130,,,,,,
-Full Body Strength,strength,,45 min full body,1,,,,,,,,,,Back Squat,4,8,60,120
-Full Body Strength,strength,,45 min full body,2,,,,,,,,,,Bench Press,4,8,40,120
+Strength,strength,,45 min full body,1,,,,,,,,,,Strength Training,,,,
 Morning Yoga Flow,yoga,,20 min flexibility flow,1,,,,,,,,,Hold 45s each side,Warrior II,2,1,,
 ```
 
 Note the `intervals` repeat group: the warmup/cooldown rows have no
 `repeat_group`/`repeat_count`, but the two rows inside the 6x block share
-`repeat_group=intervals` and both carry `repeat_count=6`.
+`repeat_group=intervals` and both carry `repeat_count=6`. Note the
+`Strength` row: a single generic `exercise_name` with `sets`/`reps`/
+`weight_kg` left blank, per **Strength workouts — generic only, for now**
+above — yoga still gets real named poses since that preference is
+strength-specific.
 
 ## Multi-workout / multi-week plans
 

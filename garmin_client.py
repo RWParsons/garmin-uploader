@@ -36,6 +36,7 @@ typed-model version of this file - it's the more reliable path.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from garminconnect import Garmin
@@ -226,14 +227,30 @@ def _raw_cardio_payload(workout: Workout) -> Dict[str, Any]:
     }
 
 
+def _exercise_description(ex: Exercise) -> str:
+    parts = [ex.name]
+    if ex.sets and ex.reps:
+        parts.append(f"{ex.sets}x{ex.reps}")
+    if ex.weight_kg:
+        parts.append(f"{ex.weight_kg}kg")
+    summary = " - ".join(parts)
+    return f"{summary} ({ex.note})" if ex.note else summary
+
+
 def _raw_exercise_payload(workout: Workout) -> Dict[str, Any]:
     """Payload for exercise-based sports: strength, yoga, pilates.
 
-    Garmin's exercise-catalog lookup (matching ex.name to a canonical
-    exercise ID) isn't replicated here - exerciseName is sent as free text,
-    which is what Garmin Connect's own workout builder falls back to when it
-    doesn't recognize a name, so unrecognized exercises just show up as
-    plain-text steps instead of catalog entries.
+    Garmin only persists exerciseName/category/reps/sets/weightValue when
+    exerciseName is an exact key from its own ~1000-entry exercise catalog
+    (e.g. "GOBLET_SQUAT") - free text there (what this app has always sent)
+    is silently accepted by the API but never actually stored: pushing a
+    step with exerciseName="Kettlebell Swing" and fetching it back shows
+    exerciseName/reps/sets as null, not the plain-text fallback previously
+    assumed here. Rather than send fields that quietly vanish, the
+    name/sets/reps/weight/note are folded into the step's plain-text
+    "description" instead (parsed back out by _parse_raw_exercise), and
+    these steps are treated as unstructured "just do the workout" entries,
+    not Garmin-catalog-tracked exercises.
     """
     exercises = workout.exercises or []
     steps = []
@@ -243,12 +260,12 @@ def _raw_exercise_payload(workout: Workout) -> Dict[str, Any]:
                 "type": "ExecutableStepDTO",
                 "stepOrder": i,
                 "stepType": WORKOUT_STEP_TYPE["interval"],
-                "exerciseName": ex.name,
-                "reps": ex.reps,
-                "sets": ex.sets,
-                "weightValue": ex.weight_kg,
-                "weightUnit": "kilogram" if ex.weight_kg else None,
-                "description": ex.note,
+                # Exercise steps are rep/set-based, not time/distance-based -
+                # "lap.button" (press lap to end the step) is what Garmin's
+                # own strength workout builder sends, same as this app's
+                # cardio steps use for open-ended "lap_button" duration.
+                "endCondition": END_CONDITION["lap_button"],
+                "description": _exercise_description(ex),
             }
         )
     sport_type = SPORT_TYPE[workout.sport]
@@ -304,17 +321,49 @@ def _parse_raw_step(raw: Dict[str, Any]) -> CardioStep:
     )
 
 
+_EXERCISE_DESCRIPTION_RE = re.compile(
+    r"^(?P<name>.+?)"
+    r"(?: - (?P<sets>\d+)x(?P<reps>\d+))?"
+    r"(?: - (?P<weight>[\d.]+)kg)?"
+    r"(?: \((?P<note>.*)\))?$"
+)
+
+
 def _parse_raw_exercise(raw: Dict[str, Any]) -> Exercise:
+    """Best-effort inverse of _raw_exercise_payload(). Garmin never actually
+    persists exerciseName/reps/sets/weightValue for free-text exercises (see
+    that function's docstring), so this app's own pushes always come back
+    with those fields null - the real data lives in the step's description
+    text, which this parses back out. Still checks the raw fields first, in
+    case a future Garmin change starts honoring them, or for a workout built
+    by hand in Garmin Connect's own UI against its real exercise catalog
+    (best-effort only, per the README's round-trip caveats).
+    """
+    if raw.get("exerciseName"):
+        return Exercise(
+            name=raw.get("exerciseName"),
+            sets=int(raw.get("sets") or 0),
+            reps=int(raw.get("reps") or 0),
+            weight_kg=raw.get("weightValue"),
+            rest_seconds=None,
+            note=raw.get("description"),
+        )
+
+    description = raw.get("description") or "Unnamed exercise"
+    match = _EXERCISE_DESCRIPTION_RE.match(description)
+    if not match:
+        return Exercise(name=description, sets=0, reps=0, weight_kg=None, rest_seconds=None, note=None)
+    weight = match.group("weight")
     return Exercise(
-        name=raw.get("exerciseName") or "Unnamed exercise",
-        sets=int(raw.get("sets") or 0),
-        reps=int(raw.get("reps") or 0),
-        weight_kg=raw.get("weightValue"),
+        name=match.group("name"),
+        sets=int(match.group("sets") or 0),
+        reps=int(match.group("reps") or 0),
+        weight_kg=float(weight) if weight else None,
         # Garmin's stored exercise steps don't carry rest time back the way
         # we send it (_raw_exercise_payload never transmits rest_seconds
         # either - see its docstring) - always None on the round trip.
         rest_seconds=None,
-        note=raw.get("description"),
+        note=match.group("note"),
     )
 
 
